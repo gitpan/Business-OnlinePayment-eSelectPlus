@@ -8,23 +8,52 @@ use Business::OnlinePayment::HTTPS 0.03;
 use vars qw($VERSION $DEBUG @ISA);
 
 @ISA = qw(Business::OnlinePayment::HTTPS);
-$VERSION = '0.01';
+$VERSION = '0.03';
 $DEBUG = 0;
 
 sub set_defaults {
     my $self = shift;
 
-    $self->server('esqa.moneris.com');
-    $self->port('443');
-    $self->path('/gateway2/servlet/MpgRequest');
+    #USD
+    #$self->server('esplusqa.moneris.com');  # development
+    $self->server('esplus.moneris.com');   # production
+    $self->path('/gateway_us/servlet/MpgRequest');
 
-    $self->build_subs(qw( order_number ));
+    ##CAD
+    ##$self->server('esqa.moneris.com');  # development
+    #$self->server('www3.moneris.com');   # production
+    #$self->path('/gateway2/servlet/MpgRequest');
+
+    $self->port('443');
+
+    $self->build_subs(qw( order_number avs_code ));
     # avs_code order_type md5 cvv2_response cavv_response
 }
 
 sub submit {
     my($self) = @_;
 
+    if ( $self->{_content}{'currency'} eq 'CAD' ) {
+      $self->server('www3.moneris.com');
+      $self->path('/gateway2/servlet/MpgRequest');
+    } else { #sorry, default to USD
+      $self->server('esplus.moneris.com');
+      $self->path('/gateway_us/servlet/MpgRequest');
+    }
+
+    if ($self->test_transaction)  {
+       if ( $self->{_content}{'currency'} eq 'CAD' ) {
+         $self->server('esqa.moneris.com');
+         $self->{_content}{'login'} = 'store2';   # store[123]
+         $self->{_content}{'password'} = 'yesguy';
+       } else { #sorry, default to USD
+         $self->server('esplusqa.moneris.com');
+         $self->{_content}{'login'} = 'monusqa002';   # monusqa00[123]
+         $self->{_content}{'password'} = 'qatoken';
+       }
+    }
+
+    # BOP field => eSelectPlus field
     #$self->map_fields();
     $self->remap_fields(
         #                => 'order_type',
@@ -50,10 +79,10 @@ sub submit {
         #                => 'expdate',
 
         'amount'         => 'amount',
-        #invoice_number  =>
-        #customer_id     =>
-        order_number     => 'order_id',
-        authorization    => 'txn_number'
+        invoice_number   => 'cust_id',
+        #customer_id      => 'cust_id',
+        order_number     => 'order_id',   # must be unique number
+        authorization    => 'txn_number'  # reference to previous trans
 
         #cvv2              =>
     );
@@ -99,12 +128,15 @@ sub submit {
     } elsif ( $action eq 'refund' ) {
 
       $self->required_fields(
-        qw( login passowrd order_number authorization )
+        qw( login password order_number authorization )
       );
 
     }
 
+    # E-Commerce Indicator (see eSelectPlus docs)
     $self->{_content}{'crypt_type'} ||= 7;
+
+    $action = "us_$action" unless $self->{_content}{'currency'} eq 'CAD';
 
     #no, values aren't escaped for XML.  their "mpgClasses.pl" example doesn't
     #appear to do so, i dunno
@@ -119,7 +151,7 @@ sub submit {
       "</$action>".
       '</request>';
 
-    warn $post_data if $DEBUG > 1;
+    warn "POSTING: ".$post_data if $DEBUG > 1;
 
     my( $page, $response, @reply_headers) = $self->https_post( $post_data );
 
@@ -127,12 +159,39 @@ sub submit {
     #warn join('', map { "  $_ => $reply_headers{$_}\n" } keys %reply_headers )
     #  if $DEBUG;
 
-    #XXX check $response and die if not 200?
+    if ($response !~ /^200/)  {
+        # Connection error
+        $response =~ s/[\r\n]+/ /g;  # ensure single line
+        $self->is_success(0);
+        my $diag_message = $response || "connection error";
+        die $diag_message;
 
-    #	avs_code
-    #	is_success
-    #	result_code
-    #	authorization
+    }
+
+    # avs_code - eSELECTplus_Perl_IG.pdf Appendix F
+    my %avsTable = ('A' => 'A',
+                    'B' => 'A',
+                    'C' => 'E',
+                    'D' => 'Y',
+                    'G' => '',
+                    'I' => '',
+                    'M' => 'Y',
+                    'N' => 'N',
+                    'P' => 'Z',
+                    'R' => 'R',
+                    'S' => '',
+                    'U' => 'E',
+                    'W' => 'Z',
+                    'X' => 'Y',
+                    'Y' => 'Y',
+                    'Z' => 'Z',
+                    );
+    my $AvsResultCode = $self->GetXMLProp($page, 'AvsResultCode');
+    $self->avs_code( defined($AvsResultCode) && exists $avsTable{$AvsResultCode}
+                         ?  $avsTable{$AvsResultCode}
+                         :  $AvsResultCode
+                   );
+
     #md5 cvv2_response cavv_response ...?
 
     $self->server_response($page);
@@ -142,17 +201,30 @@ sub submit {
     die "gateway error: ". $self->GetXMLProp( $page, 'Message' )
       if $result =~ /^null$/i;
 
+    # New unique reference created by the gateway
+    $self->order_number($self->GetXMLProp($page, 'ReferenceNum'));
+    # Original order_id supplied to the gateway
+    #$self->order_number($self->GetXMLProp($page, 'ReceiptId'));
+
+    # We (Whizman & DonorWare) do not have enough info about "ISO"
+    # response codes to make use of them.
+    # There may be good reasons why the ISO codes could be preferable,
+    # but we would need more information.  For now, the ResponseCode.
+    # $self->result_code( $self->GetXMLProp( $page, 'ISO' ) );
+    $self->result_code( $result );
+
     if ( $result =~ /^\d+$/ && $result < 50 ) {
-      $self->is_success(1);
-      $self->result_code( $self->GetXMLProp( $page, 'ISO' ) );
-      $self->authorization( $self->GetXMLProp( $page, 'Txn_number' ) );
-      $self->order_number( $self->GetXMLProp( $page, 'order_id') );
+        $self->is_success(1);
+        $self->authorization($self->GetXMLProp($page, 'AuthCode'));
     } elsif ( $result =~ /^\d+$/ ) {
-      $self->is_success(0);
-      $self->error_message( $self->GetXMLProp( $page, 'Message' ) );
+        $self->is_success(0);
+        my $tmp_msg = $self->GetXMLProp( $page, 'Message' );
+        $tmp_msg =~ s/\s{2,}//g;
+        $tmp_msg =~ s/[\*\=]//g;
+        $self->error_message( $tmp_msg );
     } else {
-      die "unparsable response received from gateway (response $result)".
-          ( $DEBUG ? ": $page" : '' );
+        die "unparsable response received from gateway (response $result)".
+            ( $DEBUG ? ": $page" : '' );
     }
 
 }
@@ -172,31 +244,31 @@ sub generate_order_id {
 }
 
 sub fields {
-	my $self = shift;
+        my $self = shift;
 
         #order is important to this processor
-	qw(
-	  order_id
-	  cust_id
-	  amount
-	  comp_amount
-	  txn_number
-	  pan
-	  expdate
-	  crypt_type
-	  cavv
-	);
+        qw(
+          order_id
+          cust_id
+          amount
+          comp_amount
+          txn_number
+          pan
+          expdate
+          crypt_type
+          cavv
+        );
 }
 
 sub GetXMLProp {
-	my( $self, $raw, $prop ) = @_;
-	local $^W=0;
+        my( $self, $raw, $prop ) = @_;
+        local $^W=0;
 
-	my $data;
-	($data) = $raw =~ m"<$prop>(.*?)</$prop>"gsi;
-	#$data =~ s/<.*?>/ /gs;
-	chomp $data;
-	return $data;
+        my $data;
+        ($data) = $raw =~ m"<$prop>(.*?)</$prop>"gsi;
+        #$data =~ s/<.*?>/ /gs;
+        chomp $data;
+        return $data;
 }
 
 1;
@@ -223,6 +295,7 @@ Business::OnlinePayment::eSelectPlus - Moneris eSelect Plus backend module for B
       action         => 'Normal Authorization',
       description    => 'Business::OnlinePayment test',
       amount         => '49.95',
+      currency       => 'USD', #or CAD for compatibility with previous releases
       name           => 'Tofu Beast',
       address        => '123 Anystreet',
       city           => 'Anywhere',
@@ -241,6 +314,13 @@ Business::OnlinePayment::eSelectPlus - Moneris eSelect Plus backend module for B
   } else {
       print "Card was rejected: ".$tx->error_message."\n";
   }
+  print "AVS code: ". $tx->avs_code. "\n"; # Y - Address and ZIP match
+                                           # A - Address matches but not ZIP
+                                           # Z - ZIP matches but not address
+                                           # N - no match
+                                           # E - AVS error or unsupported
+                                           # R - Retry (timeout)
+                                           # (empty) - not verified
 
 =head1 SUPPORTED TRANSACTION TYPES
 
@@ -259,11 +339,15 @@ Content required: type, login, password, action, amount, card_number, expiration
 
 For detailed information see L<Business::OnlinePayment>.
 
-=head1 NOTE
+=head1 Note for Canadian merchants upgrading to 0.03
+
+As of version 0.03, this module now defaults to the US Moneris.  Make sure to
+pass currency=>'CAD' for Canadian transactions.
 
 =head1 AUTHOR
 
 Ivan Kohler <ivan-eselectplus@420.am>
+Randall Whitman <www.whizman.com>
 
 =head1 SEE ALSO
 

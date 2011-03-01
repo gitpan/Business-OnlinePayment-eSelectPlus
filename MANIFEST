@@ -5,8 +5,13 @@ eSelectPlus.pm
 README
 t/load.t
 t/crypt_load.t
-t/credit_card.t
-t/crypt_credit_card.t
+t/credit_card_ca.t
+t/credit_card_us.t
+t/crypt_credit_card_ca.t
+t/crypt_credit_card_us.t
 t/bop.t
-t/bad_card.t
-t/crypt_bad_card.t
+t/bad_card_ca.t
+t/bad_card_us.t
+t/crypt_bad_card_ca.t
+t/crypt_bad_card_us.t
+META.yml                                 Module meta-data (added by MakeMaker)
