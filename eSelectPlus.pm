@@ -8,7 +8,7 @@ use Business::OnlinePayment::HTTPS 0.03;
 use vars qw($VERSION $DEBUG @ISA);
 
 @ISA = qw(Business::OnlinePayment::HTTPS);
-$VERSION = '0.03';
+$VERSION = '0.06';
 $DEBUG = 0;
 
 sub set_defaults {
@@ -33,7 +33,8 @@ sub set_defaults {
 sub submit {
     my($self) = @_;
 
-    if ( $self->{_content}{'currency'} eq 'CAD' ) {
+    if ( defined( $self->{_content}{'currency'} )
+              &&  $self->{_content}{'currency'} eq 'CAD' ) {
       $self->server('www3.moneris.com');
       $self->path('/gateway2/servlet/MpgRequest');
     } else { #sorry, default to USD
@@ -42,7 +43,8 @@ sub submit {
     }
 
     if ($self->test_transaction)  {
-       if ( $self->{_content}{'currency'} eq 'CAD' ) {
+       if ( defined( $self->{_content}{'currency'} )
+                 &&  $self->{_content}{'currency'} eq 'CAD' ) {
          $self->server('esqa.moneris.com');
          $self->{_content}{'login'} = 'store2';   # store[123]
          $self->{_content}{'password'} = 'yesguy';
@@ -95,7 +97,7 @@ sub submit {
     } elsif ( $self->{_content}{'action'} =~ /^\s*post\s*authorization\s*$/i ) {
       $action = 'completion';
     } elsif ( $self->{_content}{'action'} =~ /^\s*void\s*$/i ) {
-      $action = 'void';
+      $action = 'purchasecorrection';
     } elsif ( $self->{_content}{'action'} =~ /^\s*credit\s*$/i ) {
       if ( $self->{_content}{'authorization'} ) {
         $action = 'refund';
@@ -106,9 +108,9 @@ sub submit {
 
     if ( $action =~ /^(purchase|preauth|ind_refund)$/ ) {
 
-      $self->required_fields(
-        qw( login password amount card_number expiration )
-      );
+      $self->required_fields(qw(
+        login password amount card_number expiration
+      ));
 
       #cardexpiremonth & cardexpireyear
       $self->{_content}{'expiration'} =~ /^(\d+)\D+\d*(\d{2})$/
@@ -121,22 +123,27 @@ sub submit {
 
       $self->{_content}{amount} = sprintf('%.2f', $self->{_content}{amount} );
 
-    } elsif ( $action eq 'completion' || $action eq 'void' ) {
+    } elsif ( $action =~ /^(completion|purchasecorrection|refund)$/ ) {
 
-      $self->required_fields( qw( login password order_number authorization ) );
+      $self->required_fields(qw(
+        login password order_number authorization
+      ));
 
-    } elsif ( $action eq 'refund' ) {
-
-      $self->required_fields(
-        qw( login password order_number authorization )
-      );
+      if ( $action eq 'completion' ) {
+        $self->{_content}{comp_amount} = delete $self->{_content}{amount};
+      } elsif ( $action eq 'purchasecorrection' ) {
+        delete $self->{_content}{amount};
+      #} elsif ( $action eq 'refund' ) {
+      } 
 
     }
 
     # E-Commerce Indicator (see eSelectPlus docs)
     $self->{_content}{'crypt_type'} ||= 7;
 
-    $action = "us_$action" unless $self->{_content}{'currency'} eq 'CAD';
+    $action = "us_$action"
+      unless defined( $self->{_content}{'currency'} )
+                   && $self->{_content}{'currency'} eq 'CAD';
 
     #no, values aren't escaped for XML.  their "mpgClasses.pl" example doesn't
     #appear to do so, i dunno
@@ -155,9 +162,10 @@ sub submit {
 
     my( $page, $response, @reply_headers) = $self->https_post( $post_data );
 
-    #my %reply_headers = @reply_headers;
-    #warn join('', map { "  $_ => $reply_headers{$_}\n" } keys %reply_headers )
-    #  if $DEBUG;
+    if ($DEBUG > 1) {
+      my %reply_headers = @reply_headers;
+      warn join('', map { "  $_ => $reply_headers{$_}\n" } keys %reply_headers)
+    }
 
     if ($response !~ /^200/)  {
         # Connection error
@@ -165,7 +173,6 @@ sub submit {
         $self->is_success(0);
         my $diag_message = $response || "connection error";
         die $diag_message;
-
     }
 
     # avs_code - eSELECTplus_Perl_IG.pdf Appendix F
@@ -201,10 +208,8 @@ sub submit {
     die "gateway error: ". $self->GetXMLProp( $page, 'Message' )
       if $result =~ /^null$/i;
 
-    # New unique reference created by the gateway
-    $self->order_number($self->GetXMLProp($page, 'ReferenceNum'));
     # Original order_id supplied to the gateway
-    #$self->order_number($self->GetXMLProp($page, 'ReceiptId'));
+    $self->order_number($self->GetXMLProp($page, 'ReceiptId'));
 
     # We (Whizman & DonorWare) do not have enough info about "ISO"
     # response codes to make use of them.
@@ -215,7 +220,7 @@ sub submit {
 
     if ( $result =~ /^\d+$/ && $result < 50 ) {
         $self->is_success(1);
-        $self->authorization($self->GetXMLProp($page, 'AuthCode'));
+        $self->authorization($self->GetXMLProp($page, 'TransID'));
     } elsif ( $result =~ /^\d+$/ ) {
         $self->is_success(0);
         my $tmp_msg = $self->GetXMLProp( $page, 'Message' );
@@ -339,15 +344,24 @@ Content required: type, login, password, action, amount, card_number, expiration
 
 For detailed information see L<Business::OnlinePayment>.
 
-=head1 Note for Canadian merchants upgrading to 0.03
+=head1 NOTES
+
+=head2 Note for Canadian merchants upgrading to 0.03
 
 As of version 0.03, this module now defaults to the US Moneris.  Make sure to
 pass currency=>'CAD' for Canadian transactions.
 
+=head2 Note for upgrading to 0.05
+
+As of version 0.05, the bank authorization code is discarded (AuthCode),
+so that authorization() and order_number() can return the 2 fields needed
+for capture.  See also
+cpansearch.perl.org/src/IVAN/Business-OnlinePayment-3.02/notes_for_module_writers_v3
+
 =head1 AUTHOR
 
 Ivan Kohler <ivan-eselectplus@420.am>
-Randall Whitman <www.whizman.com>
+Randall Whitman L<whizman.com|http://whizman.com>
 
 =head1 SEE ALSO
 

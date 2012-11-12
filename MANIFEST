@@ -14,4 +14,8 @@ t/bad_card_ca.t
 t/bad_card_us.t
 t/crypt_bad_card_ca.t
 t/crypt_bad_card_us.t
+t/capture_ca.t
+t/capture_us.t
+t/void_us.t
+t/void_ca.t
 META.yml                                 Module meta-data (added by MakeMaker)

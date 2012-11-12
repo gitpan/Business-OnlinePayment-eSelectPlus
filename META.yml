@@ -1,6 +1,6 @@
 --- #YAML:1.0
 name:               Business-OnlinePayment-eSelectPlus
-version:            0.03
+version:            0.06
 abstract:           ~
 author:
     - Ivan Kohler <ivan-eselectplus@420.am>
@@ -18,7 +18,7 @@ no_index:
     directory:
         - t
         - inc
-generated_by:       ExtUtils::MakeMaker version 6.55_02
+generated_by:       ExtUtils::MakeMaker version 6.57_05
 meta-spec:
     url:      http://module-build.sourceforge.net/META-spec-v1.4.html
     version:  1.4

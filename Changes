@@ -1,5 +1,23 @@
 Revision history for Perl extension Business::OnlinePayment::eSelectPlus
 
+0.06  Mon Nov 12 14:28:16 PST 2012
+        - Fix voids even if an amount is passed (now ignored)
+        - Add missing t/void_{ca,us}.t tests
+
+0.05  unreleased to CPAN (Sat Nov 10 14:20:42 PST 2012)
+        - Pre-auth, capture/completion, voids and credits are now supported.
+          Note: testing preauth seems to work only with test store #1 (CAD).
+        - Backwards-compatibility note (align usage of 'authorization' &
+          'order_number' with notes_for_module_writers_v3 (3.0.1)):
+          + authorization() now returns gateway transaction number (TransId)
+            rather than bank authorization code (AuthCode)
+          + order_number() now returns ReceiptId rather than ReferenceNum
+        - by Randall Whitman <www.whizman.com> on contract to
+          DonorWare LLC dba donor.com <cpan @ donor . com>.
+
+0.04  unreleased
+        - Fix voids ("purchasecorrection" not "void")
+
 0.03  Tue Mar  1 13:40:08 PST 2011
         - Update for compatibility with US Moneris.  Backwards-compatibility
           note: Users of previous versions must now specify 'currency'=>'CAD'
@@ -19,7 +37,7 @@ Revision history for Perl extension Business::OnlinePayment::eSelectPlus
         - Remove extra spaces and other odd characters in Message.
         - by Randall Whitman <www.whizman.com> on contract to
           DonorWare LLC dba donor.com <cpan @ donor . com>.
-        - fix tests, die on connction errors per B:OP spec
+        - fix tests, die on connection errors per B:OP spec  (ivan)
 
 0.01  Wed Mar 16 02:39:29 PST 2005
 	- original version; created by ivan 1.0
