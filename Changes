@@ -1,5 +1,9 @@
 Revision history for Perl extension Business::OnlinePayment::eSelectPlus
 
+0.07  Wed Aug 21 11:53:36 PDT 2013
+        - eSelectPlus cust_id: Use customer number instead of invoice number
+        - eSelectPlus order_id: Append "-invoice_num" per documentation
+
 0.06  Mon Nov 12 14:28:16 PST 2012
         - Fix voids even if an amount is passed (now ignored)
         - Add missing t/void_{ca,us}.t tests

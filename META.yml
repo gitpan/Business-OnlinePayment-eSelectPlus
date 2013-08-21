@@ -1,6 +1,6 @@
 --- #YAML:1.0
 name:               Business-OnlinePayment-eSelectPlus
-version:            0.06
+version:            0.07
 abstract:           ~
 author:
     - Ivan Kohler <ivan-eselectplus@420.am>

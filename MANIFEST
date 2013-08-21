@@ -18,4 +18,5 @@ t/capture_ca.t
 t/capture_us.t
 t/void_us.t
 t/void_ca.t
+t/order_num_ca.t
 META.yml                                 Module meta-data (added by MakeMaker)

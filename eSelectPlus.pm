@@ -8,7 +8,7 @@ use Business::OnlinePayment::HTTPS 0.03;
 use vars qw($VERSION $DEBUG @ISA);
 
 @ISA = qw(Business::OnlinePayment::HTTPS);
-$VERSION = '0.06';
+$VERSION = '0.07';
 $DEBUG = 0;
 
 sub set_defaults {
@@ -55,6 +55,10 @@ sub submit {
        }
     }
 
+    my %cust_id = ( 'invoice_number' => 'cust_id' );
+
+    my $invoice_number = $self->{_content}{invoice_number};
+
     # BOP field => eSelectPlus field
     #$self->map_fields();
     $self->remap_fields(
@@ -81,8 +85,7 @@ sub submit {
         #                => 'expdate',
 
         'amount'         => 'amount',
-        invoice_number   => 'cust_id',
-        #customer_id      => 'cust_id',
+        customer_id      => 'cust_id',
         order_number     => 'order_id',   # must be unique number
         authorization    => 'txn_number'  # reference to previous trans
 
@@ -120,6 +123,8 @@ sub submit {
       $self->{_content}{expdate} = $year.$month;
 
       $self->generate_order_id;
+
+      $self->{_content}{order_id} .= '-'. ($invoice_number || 0);
 
       $self->{_content}{amount} = sprintf('%.2f', $self->{_content}{amount} );
 
